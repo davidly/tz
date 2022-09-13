@@ -1,5 +1,7 @@
 # tz
-TifZip. Sets the compression state on a tiff file to Zip, LZW, or uncompressed
+TifZip. Windows command-line app that sets the compression state on a tiff file to Zip, LZW, or uncompressed.
+
+Use m.bat in a Visual Studio 64 bit build window to build.
 
     usage: tz imagepath [/i] [/m:X]
     
