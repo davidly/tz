@@ -57,7 +57,6 @@ HRESULT SetTiffCompression( WCHAR * pwcPath, WCHAR * pwcOutputPath, DWORD compre
     }
 
     GUID containerFormat;
-
     hr = decoder->GetContainerFormat( &containerFormat );
     if ( FAILED( hr ) )
     {
@@ -72,7 +71,6 @@ HRESULT SetTiffCompression( WCHAR * pwcPath, WCHAR * pwcOutputPath, DWORD compre
     }
 
     ComPtr<IWICStream> fileStream = NULL;
-    ComPtr<IWICBitmapEncoder> encoder;
     hr = g_IWICFactory->CreateStream( fileStream.GetAddressOf() );
     if ( FAILED( hr ) )
     {
@@ -87,6 +85,7 @@ HRESULT SetTiffCompression( WCHAR * pwcPath, WCHAR * pwcOutputPath, DWORD compre
         return hr;
     }
 
+    ComPtr<IWICBitmapEncoder> encoder;
     hr = g_IWICFactory->CreateEncoder( containerFormat, NULL, encoder.GetAddressOf() );
     if ( FAILED( hr ) )
     {
@@ -109,18 +108,14 @@ HRESULT SetTiffCompression( WCHAR * pwcPath, WCHAR * pwcOutputPath, DWORD compre
         return hr;
     }
 
-    for ( UINT i = 0; i < count && SUCCEEDED( hr ); i++ )
+    for ( UINT i = 0; i < count; i++ )
     {
         ComPtr<IWICBitmapFrameDecode> frameDecode;
-   
-        if ( SUCCEEDED( hr ) )
+        hr = decoder->GetFrame( i, frameDecode.GetAddressOf() );
+        if ( FAILED( hr ) )
         {
-            hr = decoder->GetFrame( i, frameDecode.GetAddressOf() );
-            if ( FAILED( hr ) )
-            {
-                printf( "hr from GetFrame %d: %#x\n", i, hr );
-                return hr;
-            }
+            printf( "hr from GetFrame %d: %#x\n", i, hr );
+            return hr;
         }
 
         ComPtr<IWICBitmapFrameEncode> frameEncode;
@@ -164,9 +159,7 @@ HRESULT SetTiffCompression( WCHAR * pwcPath, WCHAR * pwcOutputPath, DWORD compre
             return hr;
         }
 
-        ComPtr<IWICMetadataBlockWriter> blockWriter;
         ComPtr<IWICMetadataBlockReader> blockReader;
-
         hr = frameDecode->QueryInterface( IID_IWICMetadataBlockReader, (void **) blockReader.GetAddressOf() );
         if ( FAILED( hr ) )
         {
@@ -174,6 +167,7 @@ HRESULT SetTiffCompression( WCHAR * pwcPath, WCHAR * pwcOutputPath, DWORD compre
             return hr;
         }
 
+        ComPtr<IWICMetadataBlockWriter> blockWriter;
         hr = frameEncode->QueryInterface( IID_IWICMetadataBlockWriter, (void **) blockWriter.GetAddressOf() );
         if ( FAILED( hr ) )
         {
@@ -222,6 +216,7 @@ HRESULT SetTiffCompression( WCHAR * pwcPath, WCHAR * pwcOutputPath, DWORD compre
 
 HRESULT GetTiffCompression( WCHAR * pwcPath, DWORD * pCompression )
 {
+    *pCompression = 0;
     ComPtr<IWICBitmapDecoder> decoder;
     HRESULT hr = g_IWICFactory->CreateDecoderFromFilename( pwcPath, NULL, GENERIC_READ, WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf() );
     if ( FAILED( hr ) )
@@ -252,18 +247,15 @@ HRESULT GetTiffCompression( WCHAR * pwcPath, DWORD * pCompression )
         return hr;
     }
 
-    for ( UINT i = 0; i < count && SUCCEEDED( hr ); i++ )
+    for ( UINT i = 0; i < count; i++ )
     {
         ComPtr<IWICBitmapFrameDecode> frameDecode;
    
-        if ( SUCCEEDED( hr ) )
+        hr = decoder->GetFrame( i, frameDecode.GetAddressOf() );
+        if ( FAILED( hr ) )
         {
-            hr = decoder->GetFrame( i, frameDecode.GetAddressOf() );
-            if ( FAILED( hr ) )
-            {
-                printf( "hr from GetFrame %d: %#x\n", i, hr );
-                return hr;
-            }
+            printf( "hr from GetFrame %d: %#x\n", i, hr );
+            return hr;
         }
 
         ComPtr<IWICMetadataQueryReader> queryReader;
@@ -290,7 +282,7 @@ HRESULT GetTiffCompression( WCHAR * pwcPath, DWORD * pCompression )
         return S_OK;
     }
     
-    return hr;
+    return E_FAIL; // none of the frames had compression set
 } //GetTiffCompression
 
 DWORD GetSize( WCHAR const * pwc )
@@ -419,7 +411,6 @@ extern "C" int __cdecl wmain( int argc, WCHAR * argv[] )
 
     hr = CoCreateInstance( CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, __uuidof( IWICImagingFactory ),
                            reinterpret_cast<void **>  ( g_IWICFactory.GetAddressOf() ) );
-
     if ( FAILED( hr ) )
     {
         printf( "can't initialize wic: %#x\n", hr );
