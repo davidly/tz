@@ -46,7 +46,7 @@ void CreateOutputPath( WCHAR const * pwcIn, WCHAR * pwcOut )
     wcscat( pwcOut, dot );
 } //CreateOutputPath
 
-HRESULT SetTiffCompression( WCHAR * pwcPath, WCHAR * pwcOutputPath, DWORD compressionMethod )
+HRESULT SetTiffCompression( WCHAR const * pwcPath, WCHAR const * pwcOutputPath, DWORD compressionMethod )
 {
     ComPtr<IWICBitmapDecoder> decoder;
     HRESULT hr = g_IWICFactory->CreateDecoderFromFilename( pwcPath, NULL, GENERIC_READ, WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf() );
@@ -214,7 +214,7 @@ HRESULT SetTiffCompression( WCHAR * pwcPath, WCHAR * pwcOutputPath, DWORD compre
     return hr;
 } //SetTiffCompression
 
-HRESULT GetTiffCompression( WCHAR * pwcPath, DWORD * pCompression )
+HRESULT GetTiffCompression( WCHAR const * pwcPath, DWORD * pCompression )
 {
     *pCompression = 0;
     ComPtr<IWICBitmapDecoder> decoder;
@@ -250,7 +250,6 @@ HRESULT GetTiffCompression( WCHAR * pwcPath, DWORD * pCompression )
     for ( UINT i = 0; i < count; i++ )
     {
         ComPtr<IWICBitmapFrameDecode> frameDecode;
-   
         hr = decoder->GetFrame( i, frameDecode.GetAddressOf() );
         if ( FAILED( hr ) )
         {
@@ -272,7 +271,7 @@ HRESULT GetTiffCompression( WCHAR * pwcPath, DWORD * pCompression )
         hr = queryReader->GetMetadataByName( compressionName, &value );
         if ( FAILED( hr ) )
         {
-            printf( "hr from get getmetadatabyname for compression: %#x\n", hr );
+            printf( "hr from getmetadatabyname for compression: %#x\n", hr );
             return hr;
         }
 
@@ -391,8 +390,8 @@ extern "C" int __cdecl wmain( int argc, WCHAR * argv[] )
 
     printf( "input file: %ws\n", pwcPath );
 
-    static WCHAR awcPhotoPath[ MAX_PATH ];
-    WCHAR * pwcResult = _wfullpath( awcPhotoPath, pwcPath, _countof( awcPhotoPath ) );
+    static WCHAR awcInputPath[ MAX_PATH ];
+    WCHAR * pwcResult = _wfullpath( awcInputPath, pwcPath, _countof( awcInputPath ) );
     if ( NULL == pwcResult )
     {
         printf( "can't call _wfullpath on %ws\n", pwcPath );
@@ -400,7 +399,7 @@ extern "C" int __cdecl wmain( int argc, WCHAR * argv[] )
     }
 
     static WCHAR awcOutputPath[ MAX_PATH ];
-    CreateOutputPath( awcPhotoPath, awcOutputPath );
+    CreateOutputPath( awcInputPath, awcOutputPath );
 
     HRESULT hr = CoInitializeEx( NULL, COINIT_MULTITHREADED | COINIT_DISABLE_OLE1DDE );
     if ( FAILED( hr ) )
@@ -422,40 +421,40 @@ extern "C" int __cdecl wmain( int argc, WCHAR * argv[] )
     BOOL ok = DeleteFile( awcOutputPath );
 
     DWORD currentCompression = 0;
-    hr = GetTiffCompression( awcPhotoPath, &currentCompression );
+    hr = GetTiffCompression( awcInputPath, &currentCompression );
     if ( FAILED( hr ) )
     {
         printf( "failed to read current compression value: %#x\n", hr );
         return 1;
     }
 
-    printf( "the current compression is %d == %s for file %ws\n", currentCompression, CompressionType( currentCompression ), awcPhotoPath );
+    printf( "the current compression is %d == %s for file %ws\n", currentCompression, CompressionType( currentCompression ), awcInputPath );
 
     if ( infoOnly || compressionMethod == currentCompression )
         exit( 0 );
 
-    hr = SetTiffCompression( awcPhotoPath, awcOutputPath, compressionMethod );
+    hr = SetTiffCompression( awcInputPath, awcOutputPath, compressionMethod );
  
     if ( SUCCEEDED( hr ) && !infoOnly )
     {
-        DWORD sizePhoto = GetSize( awcPhotoPath );
+        DWORD sizePhoto = GetSize( awcInputPath );
         DWORD sizeOutput = GetSize( awcOutputPath );
 
         // 1) rename the original file to a safety name
 
         static WCHAR awcSafety[ MAX_PATH ];
-        wcscpy( awcSafety, awcPhotoPath );
+        wcscpy( awcSafety, awcInputPath );
         wcscat( awcSafety, L"-saved" );
-        ok = MoveFile( awcPhotoPath, awcSafety );
+        ok = MoveFile( awcInputPath, awcSafety );
         if ( !ok )
         {
             printf( "can't rename the original file, error %d\n", GetLastError() );
             exit( 1 );
         }
 
-        // rename the compressed photo as the origianal photo
+        // rename the compressed file as the origianal file
 
-        ok = MoveFile( awcOutputPath, awcPhotoPath );
+        ok = MoveFile( awcOutputPath, awcInputPath );
         if ( !ok )
         {
             printf( "can't rename new file to the original file name, error %d\n", GetLastError() );
