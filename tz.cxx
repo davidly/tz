@@ -26,7 +26,7 @@ static void Usage()
     printf( "usage: tz imagepath [/i] [/m:X] \n" );
     printf( "  sets tiff compression to ZIP, LZW, or uncompressed.\n" );
     printf( "arguments:\n" );
-    printf( "  [/i]     information only; don't compress the image\n" );
+    printf( "  [/i]     information only; don't modify the image\n" );
     printf( "  [/m:X]   method of compression. X is Z=Zip, L=LZW, U=Uncompressed. Default is Z\n" );
     exit( 1 );
 } //Usage
