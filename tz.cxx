@@ -338,6 +338,23 @@ void PrintNumberWithCommas( long long n )
     printf( ",%03lld", n % 1000 );
 } //PrintNumberWithCommas
 
+BOOL MoveFileWithRetries( WCHAR const * oldname, WCHAR const * newname )
+{
+    BOOL ok;
+
+    for ( int attempt = 0; attempt < 20; attempt++ )
+    {
+        ok = MoveFile( oldname, newname );
+        if ( ok )
+            break;
+
+        printf( "." );
+        Sleep( 500 );
+    }
+
+    return ok;
+} //MoveFileWithRetries
+
 extern "C" int __cdecl wmain( int argc, WCHAR * argv[] )
 {
     WCHAR * pwcPath = NULL;
@@ -434,27 +451,28 @@ extern "C" int __cdecl wmain( int argc, WCHAR * argv[] )
         exit( 0 );
 
     hr = SetTiffCompression( awcInputPath, awcOutputPath, compressionMethod );
- 
-    if ( SUCCEEDED( hr ) && !infoOnly )
+    if ( SUCCEEDED( hr ) )
     {
         DWORD sizePhoto = GetSize( awcInputPath );
         DWORD sizeOutput = GetSize( awcOutputPath );
 
         // 1) rename the original file to a safety name
+        // Loop because sometimes Onedrive opens the file for a long time and doesn't let go.
 
         static WCHAR awcSafety[ MAX_PATH ];
         wcscpy( awcSafety, awcInputPath );
         wcscat( awcSafety, L"-saved" );
-        ok = MoveFile( awcInputPath, awcSafety );
+
+        ok = MoveFileWithRetries( awcInputPath, awcSafety );
         if ( !ok )
         {
-            printf( "can't rename the original file, error %d\n", GetLastError() );
+            printf( "can't rename the original file to safety name, error %d\n", GetLastError() );
             exit( 1 );
         }
 
         // rename the compressed file as the origianal file
 
-        ok = MoveFile( awcOutputPath, awcInputPath );
+        ok = MoveFileWithRetries( awcOutputPath, awcInputPath );
         if ( !ok )
         {
             printf( "can't rename new file to the original file name, error %d\n", GetLastError() );
