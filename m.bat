@@ -1,6 +1,6 @@
 @echo off
 del tz.exe
 del tz.pdb
-cl /nologo tz.cxx /O2it /EHac /Zi /Gy /D_AMD64_ /link ntdll.lib ole32.lib /OPT:REF
+cl /I.\ /nologo tz.cxx /O2it /EHac /Zi /Gy /D_AMD64_ /link ntdll.lib ole32.lib /OPT:REF
 
 
