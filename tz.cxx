@@ -11,6 +11,9 @@
 #include <wincodecsdk.h>
 #include <stdio.h>
 #include <wrl.h>
+#include <comdef.h>
+
+#include <djl_tz.hxx>
 
 using namespace Microsoft::WRL;
 
@@ -19,7 +22,7 @@ using namespace Microsoft::WRL;
 #pragma comment( lib, "windowscodecs.lib" )
 #pragma comment( lib, "ntdll.lib" )
 
-ComPtr<IWICImagingFactory> g_IWICFactory;
+CDJLTrace tracer;
 
 static void Usage()
 {
@@ -28,261 +31,9 @@ static void Usage()
     printf( "arguments:\n" );
     printf( "  [/i]     information only; don't modify the image\n" );
     printf( "  [/m:X]   method of compression. X is Z=Zip, L=LZW, U=Uncompressed. Default is Z\n" );
+    printf( "  [/t]     enable debug tracing to tz.txt. Use -T to empty tz.txt first\n" );
     exit( 1 );
 } //Usage
-
-void CreateOutputPath( WCHAR const * pwcIn, WCHAR * pwcOut )
-{
-    WCHAR const * dot = wcsrchr( pwcIn, L'.' );
-
-    if ( !dot )
-    {
-        printf( "can't find the file extension in the input filename\n" );
-        Usage();
-    }
-
-    wcscpy( pwcOut, pwcIn );
-    wcscpy( pwcOut + ( dot - pwcIn ), L"-temp" );
-    wcscat( pwcOut, dot );
-} //CreateOutputPath
-
-HRESULT SetTiffCompression( WCHAR const * pwcPath, WCHAR const * pwcOutputPath, DWORD compressionMethod )
-{
-    ComPtr<IWICBitmapDecoder> decoder;
-    HRESULT hr = g_IWICFactory->CreateDecoderFromFilename( pwcPath, NULL, GENERIC_READ, WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf() );
-    if ( FAILED( hr ) )
-    {
-        printf( "hr from create decoder: %#x\n", hr );
-        return hr;
-    }
-
-    GUID containerFormat;
-    hr = decoder->GetContainerFormat( &containerFormat );
-    if ( FAILED( hr ) )
-    {
-        printf( "hr from GetContainerFormat: %#x\n", hr );
-        return hr;
-    }
-
-    if ( GUID_ContainerFormatTiff != containerFormat )
-    {
-        printf( "container format of the input file isn't TIFF, so not compressing\n" );
-        return E_FAIL;
-    }
-
-    ComPtr<IWICStream> fileStream = NULL;
-    hr = g_IWICFactory->CreateStream( fileStream.GetAddressOf() );
-    if ( FAILED( hr ) )
-    {
-        printf( "create stream hr: %#x\n", hr );
-        return hr;
-    }
-
-    hr = fileStream->InitializeFromFilename( pwcOutputPath, GENERIC_WRITE );
-    if ( FAILED( hr ) )
-    {
-        printf( "hr from InitializeFromFilename: %#x\n", hr );
-        return hr;
-    }
-
-    ComPtr<IWICBitmapEncoder> encoder;
-    hr = g_IWICFactory->CreateEncoder( containerFormat, NULL, encoder.GetAddressOf() );
-    if ( FAILED( hr ) )
-    {
-        printf( "hr from create encoder: %#x\n", hr );
-        return hr;
-    }
-    
-    hr = encoder->Initialize( fileStream.Get(), WICBitmapEncoderNoCache );
-    if ( FAILED( hr ) )
-    {
-        printf( "initialize encoder: %#x\n", hr );
-        return hr;
-    }
-
-    UINT count = 0;
-    hr = decoder->GetFrameCount( &count );
-    if ( FAILED( hr ) )
-    {
-        printf( "hr from GetFrameCount: %#x\n", hr );
-        return hr;
-    }
-
-    for ( UINT i = 0; i < count; i++ )
-    {
-        ComPtr<IWICBitmapFrameDecode> frameDecode;
-        hr = decoder->GetFrame( i, frameDecode.GetAddressOf() );
-        if ( FAILED( hr ) )
-        {
-            printf( "hr from GetFrame %d: %#x\n", i, hr );
-            return hr;
-        }
-
-        ComPtr<IWICBitmapFrameEncode> frameEncode;
-        ComPtr<IPropertyBag2> propertyBag;
-        hr = encoder->CreateNewFrame( frameEncode.GetAddressOf(), propertyBag.GetAddressOf() );
-        if ( FAILED( hr ) )
-        {
-            printf( "hr from CreateNewFrame: %#x\n", hr );
-            return hr;
-        }
-
-        PROPBAG2 option = { 0 };
-        option.pstrName = L"TiffCompressionMethod";
-        VARIANT varValue;
-        VariantInit( &varValue );
-        varValue.vt = VT_UI1;
-
-        if ( 8 == compressionMethod )
-            varValue.bVal = WICTiffCompressionZIP;
-        else if ( 5 == compressionMethod )
-            varValue.bVal = WICTiffCompressionLZW;
-        else if ( 1 == compressionMethod )
-            varValue.bVal = WICTiffCompressionNone;
-        else
-        {
-            printf( "invalid compression method %d\n", compressionMethod );
-            return E_FAIL;
-        }
-
-        hr = propertyBag->Write( 1, &option, &varValue );
-        if ( FAILED( hr ) )
-        {
-            printf( "propertybag->write failed with error %#x\n", hr );
-            return hr;
-        }
-
-        hr = frameEncode->Initialize( propertyBag.Get() );
-        if ( FAILED( hr ) )
-        {
-            printf( "hr from frameEncode->Initialize: %#x\n", hr );
-            return hr;
-        }
-
-        ComPtr<IWICMetadataBlockReader> blockReader;
-        hr = frameDecode->QueryInterface( IID_IWICMetadataBlockReader, (void **) blockReader.GetAddressOf() );
-        if ( FAILED( hr ) )
-        {
-            printf( "qi of blockReader: %#x\n", hr );
-            return hr;
-        }
-
-        ComPtr<IWICMetadataBlockWriter> blockWriter;
-        hr = frameEncode->QueryInterface( IID_IWICMetadataBlockWriter, (void **) blockWriter.GetAddressOf() );
-        if ( FAILED( hr ) )
-        {
-            printf( "qi of blockWriter: %#x\n", hr );
-            return hr;
-        }
-
-        hr = blockWriter->InitializeFromBlockReader( blockReader.Get() );
-        if ( FAILED( hr ) )
-        {
-            printf( "hr from InitializeFromBlockReader: %#x\n", hr );
-            return hr;
-        }
-
-        hr = frameEncode->WriteSource( static_cast<IWICBitmapSource*> ( frameDecode.Get() ), NULL );
-        if ( FAILED( hr ) )
-        {
-            printf( "frameencode->writesource: %#x\n", hr );
-            return hr;
-        }
-   
-        hr = frameEncode->Commit();
-        if ( FAILED( hr ) )
-        {
-            printf( "hr from frameencode->commit: %#x\n", hr );
-            return hr;
-        }
-    }
-    
-    hr = encoder->Commit();
-    if ( FAILED( hr ) )
-    {
-        printf( "hr from encoder->commit() %#x\n", hr );
-        return hr;
-    }
-   
-    hr = fileStream->Commit( STGC_DEFAULT );
-    if ( FAILED( hr ) )
-    {
-        printf( "hr from filestream->commit() %#x\n", hr );
-        return hr;
-    }
-
-    return hr;
-} //SetTiffCompression
-
-HRESULT GetTiffCompression( WCHAR const * pwcPath, DWORD * pCompression )
-{
-    *pCompression = 0;
-    ComPtr<IWICBitmapDecoder> decoder;
-    HRESULT hr = g_IWICFactory->CreateDecoderFromFilename( pwcPath, NULL, GENERIC_READ, WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf() );
-    if ( FAILED( hr ) )
-    {
-        printf( "hr from create decoder: %#x\n", hr );
-        return hr;
-    }
-
-    GUID containerFormat;
-    hr = decoder->GetContainerFormat( &containerFormat );
-    if ( FAILED( hr ) )
-    {
-        printf( "hr from GetContainerFormat: %#x\n", hr );
-        return hr;
-    }
-
-    if ( GUID_ContainerFormatTiff != containerFormat )
-    {
-        printf( "container format of the input file isn't TIFF, so exiting early\n" );
-        return E_FAIL;
-    }
-
-    UINT count = 0;
-    hr = decoder->GetFrameCount( &count );
-    if ( FAILED( hr ) )
-    {
-        printf( "hr from GetFrameCount: %#x\n", hr );
-        return hr;
-    }
-
-    for ( UINT i = 0; i < count; i++ )
-    {
-        ComPtr<IWICBitmapFrameDecode> frameDecode;
-        hr = decoder->GetFrame( i, frameDecode.GetAddressOf() );
-        if ( FAILED( hr ) )
-        {
-            printf( "hr from GetFrame %d: %#x\n", i, hr );
-            return hr;
-        }
-
-        ComPtr<IWICMetadataQueryReader> queryReader;
-        hr = frameDecode->GetMetadataQueryReader( queryReader.GetAddressOf() );
-        if ( FAILED( hr ) )
-        {
-            printf( "hr from GetMetadataQueryReader: %#x\n", hr );
-            return hr;
-        }
-
-        WCHAR const * compressionName = L"/ifd/{ushort=259}";
-        PROPVARIANT value;
-        PropVariantInit( &value );
-        hr = queryReader->GetMetadataByName( compressionName, &value );
-        if ( FAILED( hr ) )
-        {
-            printf( "hr from getmetadatabyname for compression: %#x\n", hr );
-            return hr;
-        }
-
-        // just use the compression value from the first frame
-
-        *pCompression = value.uiVal;
-        return S_OK;
-    }
-    
-    return E_FAIL; // none of the frames had compression set
-} //GetTiffCompression
 
 DWORD GetSize( WCHAR const * pwc )
 {
@@ -338,31 +89,30 @@ void PrintNumberWithCommas( long long n )
     printf( ",%03lld", n % 1000 );
 } //PrintNumberWithCommas
 
-BOOL MoveFileWithRetries( WCHAR const * oldname, WCHAR const * newname )
+void ShowErrorAndExit( char * pcMessage, HRESULT hr = 0 )
 {
-    BOOL ok;
-
-    for ( int attempt = 0; attempt < 20; attempt++ )
+    if ( S_OK == hr )
     {
-        ok = MoveFile( oldname, newname );
-        if ( ok )
-            break;
-
-        printf( "." );
-        Sleep( 500 );
+        printf( "%s\n", pcMessage );
+    }
+    else
+    {
+        _com_error err( hr );
+        printf( "%s; error %#x == %ws\n", pcMessage, hr, err.ErrorMessage() );
     }
 
-    return ok;
-} //MoveFileWithRetries
+    exit( 1 );
+} //ShowErrorAndExit
 
 extern "C" int __cdecl wmain( int argc, WCHAR * argv[] )
 {
     WCHAR * pwcPath = NULL;
     BOOL infoOnly = false;
     DWORD compressionMethod = 8;
-    int iArg = 1;
+    bool enableTracer = false;
+    bool emptyTracerFile = false;
 
-    while ( iArg < argc )
+    for ( int iArg = 1; iArg < argc; iArg++ )
     {
         const WCHAR * pwcArg = argv[iArg];
         WCHAR a0 = pwcArg[0];
@@ -390,6 +140,14 @@ extern "C" int __cdecl wmain( int argc, WCHAR * argv[] )
                else
                    Usage();
            }
+           else if ( L't' == a1 )
+           {
+               enableTracer = true;
+               if ( 'T' == pwcArg[1] )
+                   emptyTracerFile = true;
+           }
+           else
+               Usage();
         }
         else
         {
@@ -398,8 +156,6 @@ extern "C" int __cdecl wmain( int argc, WCHAR * argv[] )
 
             pwcPath = argv[ iArg ];
         }
-
-       iArg++;
     }
 
     if ( NULL == pwcPath )
@@ -407,95 +163,59 @@ extern "C" int __cdecl wmain( int argc, WCHAR * argv[] )
 
     printf( "input file: %ws\n", pwcPath );
 
+    tracer.Enable( enableTracer, L"tz.txt", emptyTracerFile );
+
     static WCHAR awcInputPath[ MAX_PATH ];
     WCHAR * pwcResult = _wfullpath( awcInputPath, pwcPath, _countof( awcInputPath ) );
     if ( NULL == pwcResult )
-    {
-        printf( "can't call _wfullpath on %ws\n", pwcPath );
-        return 0;
-    }
+        ShowErrorAndExit( "call to _wfullpath failed" );
 
-    static WCHAR awcOutputPath[ MAX_PATH ];
-    CreateOutputPath( awcInputPath, awcOutputPath );
+    DWORD attributes = GetFileAttributes( pwcResult );
+    if ( INVALID_FILE_ATTRIBUTES == attributes )
+        ShowErrorAndExit( "the input file doesn't exist" );
+
+    if ( attributes & FILE_ATTRIBUTE_READONLY )
+        ShowErrorAndExit( "the input file is read-only" );
+
+    if ( attributes & FILE_ATTRIBUTE_DIRECTORY )
+        ShowErrorAndExit( "the input file is a directory" );
 
     HRESULT hr = CoInitializeEx( NULL, COINIT_MULTITHREADED | COINIT_DISABLE_OLE1DDE );
     if ( FAILED( hr ) )
-    {
-        printf( "can't coinitializeex: %#x\n", hr );
-        return 0;
-    }
+        ShowErrorAndExit( "can't coinitializeex", hr );
 
+    ComPtr<IWICImagingFactory> wicFactory;
     hr = CoCreateInstance( CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, __uuidof( IWICImagingFactory ),
-                           reinterpret_cast<void **>  ( g_IWICFactory.GetAddressOf() ) );
+                           reinterpret_cast<void **>  ( wicFactory.GetAddressOf() ) );
     if ( FAILED( hr ) )
-    {
-        printf( "can't initialize wic: %#x\n", hr );
-        return 0;
-    }
+        ShowErrorAndExit( "can't initialize wic", hr );
 
-    // Delete any old version of the temporary file
-
-    BOOL ok = DeleteFile( awcOutputPath );
-
+    CTiffCompression tiffCompression;
     DWORD currentCompression = 0;
-    hr = GetTiffCompression( awcInputPath, &currentCompression );
+    hr = tiffCompression.GetTiffCompression( wicFactory, awcInputPath, &currentCompression );
     if ( FAILED( hr ) )
-    {
-        printf( "failed to read current compression value: %#x\n", hr );
-        return 1;
-    }
+        ShowErrorAndExit( "unable to read the current compression status", hr );
 
     printf( "the current compression is %d == %s for file %ws\n", currentCompression, CompressionType( currentCompression ), awcInputPath );
 
     if ( infoOnly || compressionMethod == currentCompression )
         exit( 0 );
 
-    hr = SetTiffCompression( awcInputPath, awcOutputPath, compressionMethod );
-    if ( SUCCEEDED( hr ) )
-    {
-        DWORD sizePhoto = GetSize( awcInputPath );
-        DWORD sizeOutput = GetSize( awcOutputPath );
+    DWORD sizeBefore = GetSize( awcInputPath );
 
-        // 1) rename the original file to a safety name
-        // Loop because sometimes Onedrive opens the file for a long time and doesn't let go.
+    hr = tiffCompression.CompressTiff( wicFactory, awcInputPath, compressionMethod );
+    if ( FAILED( hr ) )
+        ShowErrorAndExit( "unable to set compression", hr );
 
-        static WCHAR awcSafety[ MAX_PATH ];
-        wcscpy( awcSafety, awcInputPath );
-        wcscat( awcSafety, L"-saved" );
+    DWORD sizeAfter = GetSize( awcInputPath );
 
-        ok = MoveFileWithRetries( awcInputPath, awcSafety );
-        if ( !ok )
-        {
-            printf( "can't rename the original file to safety name, error %d\n", GetLastError() );
-            exit( 1 );
-        }
-
-        // rename the compressed file as the origianal file
-
-        ok = MoveFileWithRetries( awcOutputPath, awcInputPath );
-        if ( !ok )
-        {
-            printf( "can't rename new file to the original file name, error %d\n", GetLastError() );
-            exit( 1 );
-        }
-
-        // delete the (renamed) original file
-
-        ok = DeleteFile( awcSafety );
-        if ( !ok )
-        {
-            printf( "can't delete the saved original file, error %d\n", GetLastError() );
-            exit( 1 );
-        }
-
-        printf( "original file size " );
-        PrintNumberWithCommas( sizePhoto );
-        printf( " new size " );
-        PrintNumberWithCommas( sizeOutput );
-        printf( "\n" );
-    }
+    printf( "original file size " );
+    PrintNumberWithCommas( sizeBefore );
+    printf( " new size " );
+    PrintNumberWithCommas( sizeAfter );
+    printf( "\n" );
     
-    g_IWICFactory.Reset();
+    wicFactory.Reset();
     CoUninitialize();
 
     return 0;
