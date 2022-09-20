@@ -35,19 +35,19 @@ static void Usage()
     exit( 1 );
 } //Usage
 
-DWORD GetSize( WCHAR const * pwc )
+ULONGLONG GetSize( WCHAR const * pwc )
 {
-    DWORD size = 0;
+    ULARGE_INTEGER ul;
+    ul.QuadPart = 0;
 
-    HANDLE h = CreateFile( pwc, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, 0 );
-
-    if ( INVALID_HANDLE_VALUE != h )
+    WIN32_FILE_ATTRIBUTE_DATA data;
+    if ( GetFileAttributesEx( pwc, GetFileExInfoStandard, &data ) )
     {
-        size = GetFileSize( h, 0 );
-        CloseHandle( h );
+        ul.HighPart = data.nFileSizeHigh;
+        ul.LowPart = data.nFileSizeLow;
     }
 
-    return size;
+    return ul.QuadPart;
 } //GetSize
 
 const char * CompressionType( DWORD x )
@@ -201,13 +201,13 @@ extern "C" int __cdecl wmain( int argc, WCHAR * argv[] )
     if ( infoOnly || compressionMethod == currentCompression )
         exit( 0 );
 
-    DWORD sizeBefore = GetSize( awcInputPath );
+    ULONGLONG sizeBefore = GetSize( awcInputPath );
 
     hr = tiffCompression.CompressTiff( wicFactory, awcInputPath, compressionMethod );
     if ( FAILED( hr ) )
         ShowErrorAndExit( "unable to set compression", hr );
 
-    DWORD sizeAfter = GetSize( awcInputPath );
+    ULONGLONG sizeAfter = GetSize( awcInputPath );
 
     printf( "original file size " );
     PrintNumberWithCommas( sizeBefore );
